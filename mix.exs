@@ -18,7 +18,7 @@ defmodule SmartToken.MixProject do
     [
       maintainers: ["noizu"],
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/noizu-labs-scaffolding/SmartToken"}
+      links: %{"GitHub" => "https://github.com/noizu-labs-scaffolding/smart_token"}
     ]
   end # end package
 
@@ -35,7 +35,8 @@ defmodule SmartToken.MixProject do
     [
       {:elixir_uuid, "~> 1.2"},
       {:shortuuid, "~> 3.0"},
-      {:noizu_labs_core, "~> 0.1.3"}
+      {:noizu_labs_core, "~> 0.1.3"},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]
@@ -43,7 +44,7 @@ defmodule SmartToken.MixProject do
 
   defp docs do
     [
-      source_url_pattern: "https://github.com/noizu-labs-scaffolding/SmartToken/blob/master/%{path}#L%{line}",
+      source_url_pattern: "https://github.com/noizu-labs-scaffolding/smart_token/blob/master/%{path}#L%{line}",
       extras: ["README.md"]
     ]
   end # end docs
