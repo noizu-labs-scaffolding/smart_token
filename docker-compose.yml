@@ -1,0 +1,15 @@
+networks:
+  smart-token-network:
+services:
+  database:
+    container_name: smart-token-database
+    hostname: smart-token-database
+    image: "timescale/timescaledb-ha:pg16.4-ts2.17.1-all"
+    environment:
+      - POSTGRES_USER=smart_token
+      - POSTGRES_PASSWORD=smart_token_1234
+      - POSTGRES_DB=smart_token
+    ports:
+      - 127.0.0.1:5550:5432
+    networks:
+      - smart-token-network

@@ -2,33 +2,21 @@ defmodule SmartToken.Exception do
   defexception message: "Invalid Token"
 end
 
-defmodule SmartToken.InvalidHandler do
-  def save_token(_token, _context, _options) do
-    raise  SmartToken.Exception, "Missing save_token hook: add config :smart_token, hooks: [save_token: &provider/3] to your config.exs"
-  end
-  def get_token(_token) do
-    raise  SmartToken.Exception, "Missing save_token hook: add config :smart_token, hooks: [get_token: &provider/1] to your config.exs"
-  end
-  def get_by_token(_token_a,_token_b) do
-    raise  SmartToken.Exception, "Missing save_token hook: add config :smart_token, hooks: [get_by_token: &provider/2] to your config.exs"
-  end
-
-end
-
 defmodule SmartToken do
   alias Noizu.EntityReference.Protocol, as: NoizuERP
   @vsn 1.0
-
-  handlers = Application.compile_env(:smart_token, :hooks)
-  @handler %{
-    get_token: handlers[:get_token] || &SmartToken.InvalidHandler.get_token/1,
-    get_by_token: handlers[:get_by_token] ||  &SmartToken.InvalidHandler.get_by_token/2,
-    save_token: handlers[:save_token] ||  &SmartToken.InvalidHandler.save_token/3
-  }
-
-  @handler[:get_token] || raise SmartToken.Exception, "Missing get_by_token hook: add config :smart_token, hooks: [get_token: fun/1] to your config.exs"
-  @handler[:get_by_token] || raise SmartToken.Exception, "Missing get_by_token hook: add config :smart_token, hooks: [get_by_token: fun/1] to your config.exs"
-  @handler[:save_token] || raise SmartToken.Exception, "Missing save_token hook: add config :smart_token, hooks: [save_token: fun/2] to your config.exs"
+  @schema (cond do
+    x = Application.compile_env(:smart_token, :store) -> x
+    Application.compile_env(:smart_token, :repo) -> SmartToken.Schema.SmartToken
+    :else ->
+      raise SmartToken.Exception, """
+      You must set a schema module (adhering to SmartToken.SchemaBehaviour or ecto Repo in your config.
+      ```elixir
+      config, :smart_token,
+        store: YourApp.Repo
+      ```
+      """
+  end)
 
   @type t :: %__MODULE__{
     identifier: integer(),
@@ -144,16 +132,13 @@ defmodule SmartToken do
     with {token_a, token_b} <- String.split_at(token_key, div(String.length(token_key),2)),
          {:ok, token_a} <- ShortUUID.decode(token_a),
          {:ok, token_b} <- ShortUUID.decode(token_b),
-         {:ok, matches} <- @handler[:get_by_token].(token_a, token_b),
-         matches <- Enum.filter(matches, fn(m) -> m.active end),
-         true <- matches != [] || {:error, :no_active_matches} do
-      case validate(matches, conn, context, options) do
+         {:ok, token} <- apply(@schema, :lookup_smart_token, [token_a, token_b, context, options]) do
+      case validate(token, conn, context, options) do
         {:ok, token} ->
-
           update = record_valid_access!(token, conn, options)
           {:ok, update}
         {:error, error} ->
-          record_invalid_access!(matches, conn, options)
+          record_invalid_access!(token, conn, options)
           {:error, error}
       end
 
@@ -183,7 +168,7 @@ defmodule SmartToken do
   #-------------------------------------
   def bind!(%__MODULE__{} = token, bindings, context, options \\ nil) do
     with {:ok, token} <- bind(token, bindings, options),
-         {:ok, token} <- @handler[:save_token].(token, context, options) do
+         {:ok, token} <- apply(@schema, :save_smart_token, [token, context, options]) do
       token
     else
       error -> raise SmartToken.Exception, "Bind! failure: #{inspect error}"
@@ -300,12 +285,14 @@ defmodule SmartToken do
   def validate(%__MODULE__{} = this, _conn, _context, options) do
     #this = entity!(this)
 
-    p_c = validate_period(this, options)
     a_c = validate_access_count(this)
+    p_c = validate_period(this, options)
 
     cond do
-      p_c == :valid && a_c == :valid -> {:ok, this}
-      true -> {:error, {{:period, p_c}, {:access_count, a_c}}}
+      a_c == :valid && p_c == :valid -> {:ok, this}
+      a_c != :valid && p_c != :valid -> {:error, [access_count: a_c, period: p_c]}
+      a_c != :valid -> {:error, [access_count: a_c]}
+      p_c != :valid -> {:error, [period: p_c]}
     end
   end
 
@@ -389,11 +376,11 @@ defmodule SmartToken do
   # record_access!/3
   #---------------------------
   def record_access!(%__MODULE__{} = this, entry, options \\ nil) do
+    context = Noizu.Context.admin()
     this = this
            |> update_in([Access.key(:access_history), :count], &((&1 || 0) + 1))
            |> update_in([Access.key(:access_history), :history], &((&1 || []) ++ [entry]))
-
-    with {:ok, update} <- @handler[:save_token].(this, Noizu.Context.admin(), options) do
+    with {:ok, update} <- apply(@schema, :save_smart_token, [this, context, options]) do
       update
     else
       error -> raise SmartToken.Exception, "Record Access! failure: #{inspect error}"

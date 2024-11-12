@@ -4,13 +4,14 @@ defmodule SmartToken.MixProject do
   def project do
     [
       app: :smart_token,
-      version: "0.1.0",
+      version: "0.1.1",
       elixir: "~> 1.15",
       package: package(),
       deps: deps(),
       description: "Smart Token - A simple token generator for authentication and authorization.",
       docs: docs(),
       elixirc_paths: elixirc_paths(Mix.env),
+      aliases: aliases()
     ]
   end
 
@@ -36,7 +37,10 @@ defmodule SmartToken.MixProject do
       {:elixir_uuid, "~> 1.2"},
       {:shortuuid, "~> 3.0"},
       {:noizu_labs_core, "~> 0.1.3"},
-      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
+
+      {:ecto_sql, "~> 3.10", optional: true},
+      {:postgrex, ">= 0.0.0", optional: true},
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]
@@ -53,5 +57,11 @@ defmodule SmartToken.MixProject do
   # Specifies which paths to compile per environment.
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_),     do: ["lib"]
+
+  defp aliases do
+    [
+      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"]
+    ]
+  end
 
 end

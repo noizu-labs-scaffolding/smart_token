@@ -1,5 +1,6 @@
 defmodule SmartTokenTest do
   use ExUnit.Case
+
   doctest SmartToken
 
   @context Noizu.Context.admin()
@@ -40,7 +41,8 @@ defmodule SmartTokenTest do
 
     SmartToken.authorize!(encoded_link, @conn_stub, @context)
     attempt = SmartToken.authorize!(encoded_link, @conn_stub, @context)
-    assert attempt == {:error, :invalid}
+    {:error, errors} = attempt
+    assert errors[:access_count] == {:error, :single_use_exceeded}
   end
 
   @tag :smart_token
@@ -59,7 +61,8 @@ defmodule SmartTokenTest do
     {attempt, _token} = SmartToken.authorize!(encoded_link, @conn_stub, @context)
     assert attempt == :ok
     attempt = SmartToken.authorize!(encoded_link, @conn_stub, @context)
-    assert attempt == {:error, :invalid}
+    {:error, errors} = attempt
+    assert errors[:access_count] == {:error, :multi_use_exceeded}
   end
 
   @tag :smart_token
@@ -77,7 +80,8 @@ defmodule SmartTokenTest do
     past_expiration = DateTime.utc_now() |> DateTime.shift(day: 5)
     options = %{current_time: past_expiration}
     attempt = SmartToken.authorize!(encoded_link, @conn_stub, @context, options)
-    assert attempt == {:error, :invalid}
+    {:error, errors} = attempt
+    assert errors[:period] == {:error, :gt_range}
   end
 
 end
