@@ -36,7 +36,7 @@ defmodule SmartToken.MixProject do
     [
       {:elixir_uuid, "~> 1.2"},
       {:shortuuid, "~> 3.0"},
-      {:noizu_labs_core, "~> 0.1.3"},
+      {:noizu_labs_core, ">= 0.0.0"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
 
       {:ecto_sql, "~> 3.10", optional: true},
