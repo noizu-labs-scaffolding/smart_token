@@ -4,14 +4,13 @@ defmodule SmartTokenTest do
   doctest SmartToken
 
   @context Noizu.Context.admin()
-  @conn_stub %{remote_ip: {127, 0, 0, 1}}
+  @conn_stub %Plug.Conn{remote_ip: {127, 0, 0, 1}, private: %{plug_session: %{"henry" => 5}}}
 
   @tag :smart_token
   test "Account Verification Create & Redeem" do
     user_ref = {:ref, SmartTokenTest.User, 1234}
     binding = %{recipient: user_ref}
-    smart_token = SmartToken.account_verification_token(%{})
-            |> SmartToken.bind!(binding, @context, %{})
+    smart_token = SmartToken.account_verification_token(%{}) |> SmartToken.bind!(binding, @context, %{})
 
     encoded_link = SmartToken.encoded_key(smart_token)
 
@@ -32,6 +31,67 @@ defmodule SmartTokenTest do
 
 
   @tag :smart_token
+  test "Account Verification - IP In WhiteList" do
+    user_ref = {:ref, SmartTokenTest.User, 1234}
+    bindings = %{recipient: user_ref}
+    smart_token = SmartToken.account_verification_token(%{})
+                  |> SmartToken.ip_whitelist("127.0.0.1/32")
+                  |> SmartToken.bind!(bindings, @context, %{})
+    encoded_link = SmartToken.encoded_key(smart_token)
+
+    {attempt, token} = SmartToken.authorize!(encoded_link, @conn_stub, @context)
+    assert attempt == :ok
+    assert smart_token.resource == user_ref
+  end
+
+  @tag :smart_token
+  test "Account Verification - IP Not In WhiteList" do
+    user_ref = {:ref, SmartTokenTest.User, 1234}
+    bindings = %{recipient: user_ref}
+    smart_token = SmartToken.account_verification_token(%{})
+                  |> SmartToken.ip_whitelist("127.5.0.1/32")
+                  |> SmartToken.bind!(bindings, @context, %{})
+    encoded_link = SmartToken.encoded_key(smart_token)
+
+    attempt = SmartToken.authorize!(encoded_link, @conn_stub, @context)
+    {:error, errors} = attempt
+    assert errors[:remote_ip] == {:error, {:ip_not_in_white_list, @conn_stub.remote_ip}}
+  end
+
+
+  @tag :smart_token
+  test "Account Verification - Valid Session Secret" do
+    user_ref = {:ref, SmartTokenTest.User, 1234}
+    bindings = %{recipient: user_ref}
+    smart_token = SmartToken.account_verification_token(%{})
+                  |> SmartToken.session_value("henry", 5)
+                  |> SmartToken.bind!(bindings, @context, %{})
+
+    encoded_link = SmartToken.encoded_key(smart_token)
+
+    {attempt, token} = SmartToken.authorize!(encoded_link, @conn_stub, @context)
+    SmartToken.authorize!(encoded_link, @conn_stub, @context)
+    SmartToken.authorize!(encoded_link, @conn_stub, @context)
+    assert attempt == :ok
+    assert smart_token.resource == user_ref
+  end
+
+  @tag :smart_token
+  test "Account Verification - Invalid Session Secret" do
+    user_ref = {:ref, SmartTokenTest.User, 1234}
+    bindings = %{recipient: user_ref}
+    smart_token = SmartToken.account_verification_token(%{})
+                  |> SmartToken.session_value("henry", 6)
+                  |> SmartToken.bind!(bindings, @context, %{})
+    encoded_link = SmartToken.encoded_key(smart_token)
+
+    attempt = SmartToken.authorize!(encoded_link, @conn_stub, @context)
+    {:error, errors} = attempt
+    assert errors[:session] == {:error, {:values, ["henry"]}}
+  end
+
+
+  @tag :smart_token
   test "Account Verification - Max Attempts Exceeded - Single Use" do
     user_ref = {:ref, SmartTokenTest.User, 1234}
     bindings = %{recipient: user_ref}
@@ -44,6 +104,7 @@ defmodule SmartTokenTest do
     {:error, errors} = attempt
     assert errors[:access_count] == {:error, :single_use_exceeded}
   end
+
 
   @tag :smart_token
   test "Account Verification - Max Attempts Exceeded - Multi Use" do
@@ -83,5 +144,6 @@ defmodule SmartTokenTest do
     {:error, errors} = attempt
     assert errors[:period] == {:error, :gt_range}
   end
+
 
 end

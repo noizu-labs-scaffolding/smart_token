@@ -38,7 +38,8 @@ defmodule SmartToken.MixProject do
       {:shortuuid, "~> 3.0"},
       {:noizu_labs_core, ">= 0.0.0"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
-
+      {:inet_cidr, "~> 1.0.0"},
+      {:plug, ">= 0.0.0"},
       {:ecto_sql, "~> 3.10", optional: true},
       {:postgrex, ">= 0.0.0", optional: true},
       # {:dep_from_hexpm, "~> 0.3.0"},

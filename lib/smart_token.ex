@@ -97,6 +97,67 @@ defmodule SmartToken do
   end
 
 
+  def single_use(%__MODULE__{} = this) do
+    extended_info = (this.extended_info || %{})
+                    |> Map.delete(:multi_use)
+                    |> Map.delete(:limit)
+                    |> Map.put(:single_use, true)
+    this
+    |> put_in([Access.key(:extended_info)], extended_info)
+  end
+
+  def multi_use(%__MODULE__{} = this, limit) do
+    extended_info = (this.extended_info || %{})
+                    |> Map.delete(:single_use)
+                    |> Map.put(:multi_use, true)
+                    |> Map.put(:limit, limit)
+    this
+    |> put_in([Access.key(:extended_info)], extended_info)
+  end
+
+  def unlimited_use(%__MODULE__{} = this) do
+    extended_info = (this.extended_info || %{})
+                    |> Map.delete(:single_use)
+                    |> Map.delete(:multi_use)
+                    |> Map.delete(:limit)
+                    |> Map.put(:unlimited_use, true)
+    this
+    |> put_in([Access.key(:extended_info)], extended_info)
+  end
+
+
+  @doc """
+  Add a validity period to the token
+      - from_period: `:unbound | {:relative, [{period, count}]} | {:fixed, time}`
+      - to_period: `:unbound | {:relative, [{period, count}]} | {:fixed, time}`
+
+  """
+  def validity_period(%__MODULE__{} = this, from_period, to_period) do
+    this
+    |> put_in([Access.key(:validity_period)], {from_period, to_period})
+  end
+
+  @doc """
+  Add ip whitelist entry(ies)
+  """
+  def ip_whitelist(%__MODULE__{} = this, cidr) when is_tuple(cidr) or is_bitstring(cidr) do
+    this
+    |> update_in([Access.key(:extended_info), :ip_whitelist], & (&1 || []) ++ [cidr])
+  end
+  def ip_whitelist(%__MODULE__{} = this, cidr) when is_list(cidr) do
+    this
+    |> update_in([Access.key(:extended_info), :ip_whitelist], & (&1 || []) ++ [cidr])
+  end
+
+  @doc """
+  Add session key,value constraint
+  """
+  def session_value(%__MODULE__{} = this, key, value) do
+    this
+    |> update_in([Access.key(:extended_info), :session_values], & [{key, value} | (&1 || [])])
+  end
+
+
   #-------------------------------------
   # new/1
   #-------------------------------------
@@ -138,8 +199,8 @@ defmodule SmartToken do
           update = record_valid_access!(token, conn, options)
           {:ok, update}
         {:error, error} ->
-          record_invalid_access!(token, conn, options)
-          {:error, error}
+          token = record_invalid_access!(token, error, conn, options)
+          {:error, error ++ [token: token]}
       end
 
     end
@@ -282,17 +343,23 @@ defmodule SmartToken do
   #---------------------------
   # validate/4
   #---------------------------
-  def validate(%__MODULE__{} = this, _conn, _context, options) do
+  def validate(%__MODULE__{} = this, conn, _context, options) do
     #this = entity!(this)
-
-    a_c = validate_access_count(this)
-    p_c = validate_period(this, options)
-
-    cond do
-      a_c == :valid && p_c == :valid -> {:ok, this}
-      a_c != :valid && p_c != :valid -> {:error, [access_count: a_c, period: p_c]}
-      a_c != :valid -> {:error, [access_count: a_c]}
-      p_c != :valid -> {:error, [period: p_c]}
+    checks = [
+               {:period, validate_period(this, options)},
+               {:access_count, validate_access_count(this)},
+               {:remote_ip, validate_remote_ip(this, conn)},
+               {:session, validate_session_values(this, conn)},
+             ] |> Enum.reject(
+                    fn
+                      {_,:valid} -> true
+                      _ -> false
+                    end
+                  )
+    unless checks == [] do
+      {:error, checks}
+    else
+      {:ok, this}
     end
   end
 
@@ -359,6 +426,51 @@ defmodule SmartToken do
           {:error, :multi_use_exceeded}
         end
       %{unlimited_use: true} -> :valid
+      _ -> {:error, :invalid_access_constraint}
+    end
+  end
+
+  def validate_remote_ip(%__MODULE__{} = this, conn) do
+    with %{ip_whitelist: ip_whitelist} <- this.extended_info do
+      ip_whitelist = is_list(ip_whitelist) && ip_whitelist || [ip_whitelist]
+      Enum.find_value(
+        ip_whitelist,
+        {:error, {:ip_not_in_white_list, conn.remote_ip}},
+        fn
+          cidr when is_tuple(cidr) ->
+            if conn.remote_ip do
+              if InetCidr.contains?(cidr, conn.remote_ip) do
+                :valid
+              end
+            end
+          cidr when is_bitstring(cidr) ->
+            if conn.remote_ip do
+              with {:ok, cidr} <- InetCidr.parse_cidr(cidr) do
+                InetCidr.contains?(cidr, conn.remote_ip) && :valid || nil
+              end
+            end
+        end
+      )
+    else
+      _ -> :valid
+    end
+  end
+
+  def validate_session_values(%__MODULE__{} = this, conn) do
+    with %{session_values: values} <- this.extended_info do
+      errors = Enum.map(values, fn {key, value} ->
+        case Plug.Conn.get_session(conn, key) do
+          ^value -> nil
+          _ -> key
+        end
+      end) |> Enum.reject(&is_nil/1)
+      if errors == [] do
+        :valid
+      else
+        {:error, {:values, errors}}
+      end
+    else
+      _ -> :valid
     end
   end
 
@@ -402,10 +514,10 @@ defmodule SmartToken do
     end)
   end
 
-  def record_invalid_access!(%__MODULE{} = this, conn, options) do
+  def record_invalid_access!(%__MODULE{} = this, error, conn, options) do
     current_time = options[:current_time] || DateTime.utc_now()
     ip = conn.remote_ip |> Tuple.to_list |> Enum.join(".")
-    entry = %{time: current_time, ip: ip,  type: {:error, :check_mismatch}}
+    entry = %{time: current_time, ip: ip,  type: error}
     record_access!(this, entry, options)
   end
 
